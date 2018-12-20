@@ -107,16 +107,18 @@ object AsyncMapStream {
     * collect consumer's result and output as a new stream with the same input order
     */
   case class Collecter[T](buckets: Int, itemHandler: (T) => Any, endHandler: () => Any) {
-    private val bucketQueues = 1 to buckets map ((item) => new SynchronizedQueue[AsyncMapStreamRecord]())
-    private var pointer      = 0 // rotate pointer from 0 to buckets - 1
+    private val bucketQueues = 1 to buckets map (
+        (item) => new SynchronizedQueue[AsyncMapStreamRecord]()
+    )
+    private var pointer = 0 // rotate pointer from 0 to buckets - 1
 
     def collect(recordResult: AsyncMapStreamRecord, bucketIndex: Int) = {
-       // push record result to specified bucket
-       bucketQueues(bucketIndex).enqueue(recordResult)
-       // output record
-       outputRecord()
+      // push record result to specified bucket
+      bucketQueues(bucketIndex).enqueue(recordResult)
+      // output record
+      outputRecord()
     }
-   
+
     private def outputRecord(): Unit = synchronized {
       val pointedQueue = bucketQueues(pointer)
 

@@ -6,14 +6,14 @@ import scala.collection.mutable.ListBuffer
 import duration._
 
 class AsyncMapStreamTest extends org.scalatest.FunSuite {
-  test("single process") {
-    import AsyncMapStream._
+  import AsyncMapStream._
 
-    val expectList = 1 to 100 map ((item) => item * item)
-    val expect = expectList.mkString(",")
+  test("single process") {
+    val expectList  = 1 to 1000 map ((item) => item * item)
+    val expect      = expectList.mkString(",")
     val mapFunction = (v: Int) => v * v
 
-    1 to 10000 foreach { index =>
+    1 to 1000 foreach { index =>
       val p          = Promise[Int]()
       val resultList = ListBuffer[Int]()
       val consumer = singleProcess[Int](mapFunction, (record) => {
@@ -22,7 +22,7 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
         p.trySuccess(0)
       })
       // stream
-      1 to 100 foreach { item =>
+      1 to 1000 foreach { item =>
         consumer.consume(item)
       }
       // end signal
@@ -31,5 +31,48 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
       assert(resultList.length == expectList.length)
       assert(resultList.mkString(",") == expect)
     }
+  }
+
+  test("perf: long string operations") {
+    val longText = 1 to 10000 map ((index) => s"${index}") mkString (",")
+
+    val mapFunction =
+      (v: String) => {
+        var result = v.split(",").mkString(".")
+        1 to 10000 foreach { _ =>
+          result = result.split(".").mkString(".")
+        }
+        result
+      }
+
+    var t1         = System.currentTimeMillis()
+    val p          = Promise[String]()
+    val resultList = ListBuffer[String]()
+    val consumer = singleProcess[String](mapFunction, (record) => {
+      resultList.append(record)
+    }, () => {
+      p.trySuccess("")
+    }, 32)
+    // handle 1000 strings
+    1 to 1000 foreach { _ =>
+      consumer.consume(longText + ";")
+    }
+    // end signal
+    consumer.finish()
+
+    Await.result(p.future, Duration.Inf)
+    var t2 = System.currentTimeMillis()
+    println(s"concurrent map computation: ${t2 - t1} ms")
+
+    // normal computation
+    val resultList2 = ListBuffer[String]()
+    var t3          = System.currentTimeMillis()
+    1 to 1000 foreach { _ =>
+      resultList2.append(mapFunction(longText + ";"))
+    }
+    var t4 = System.currentTimeMillis()
+    println(s"normal map computation: ${t4 - t3} ms")
+
+    assert(resultList == resultList2)
   }
 }
