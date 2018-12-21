@@ -22,12 +22,12 @@ import scala.concurrent.ExecutionContext
 case class AsyncMapStreamRecord(record: Any, signal: Int)
 
 object AsyncMapStream {
-  type MapFunction[T] = (T) => T
+  type MapFunction[T, U] = (T) => U
 
   val SIGNAL_ITEM = 0
   val SIGNAL_END  = 1
 
-  case class SendingQueue[T](bucketIndex: Int, sendItem: (AsyncMapStreamRecord, Int) => Future[_])(
+  case class SendingQueue(bucketIndex: Int, sendItem: (AsyncMapStreamRecord, Int) => Future[_])(
       implicit ec: ExecutionContext
   ) {
     private val queue = new SynchronizedQueue[AsyncMapStreamRecord]()
@@ -56,8 +56,8 @@ object AsyncMapStream {
   /**
     * responsible for map computation of stream records
     */
-  case class MapCalculator[T](
-      mapFunction: MapFunction[T],
+  case class MapCalculator[T, U](
+      mapFunction: MapFunction[T, U],
       bucketIndex: Int,
       gather: (AsyncMapStreamRecord, Int) => Future[_]
   )(implicit ec: ExecutionContext) {
@@ -81,7 +81,7 @@ object AsyncMapStream {
     private var currentIndex: Long = 0
 
     private val bucketQueues = 0 to buckets - 1 map (
-        (bucketIndex) => SendingQueue[T](bucketIndex, sendItem)
+        (bucketIndex) => SendingQueue(bucketIndex, sendItem)
     )
 
     /**
@@ -106,7 +106,7 @@ object AsyncMapStream {
   /**
     * collect consumer's result and output as a new stream with the same input order
     */
-  case class Collecter[T](buckets: Int, itemHandler: (T) => Any, endHandler: () => Any) {
+  case class Collecter[U](buckets: Int, itemHandler: (U) => Any, endHandler: () => Any) {
     private val bucketQueues = 1 to buckets map (
         (item) => new SynchronizedQueue[AsyncMapStreamRecord]()
     )
@@ -127,7 +127,7 @@ object AsyncMapStream {
         record.signal match {
           case SIGNAL_ITEM =>
             try {
-              itemHandler(record.record.asInstanceOf[T])
+              itemHandler(record.record.asInstanceOf[U])
             } catch {
               case e: Exception => {
                 //
@@ -148,13 +148,13 @@ object AsyncMapStream {
   /**
     * special case for single process computation
     */
-  def singleProcess[T](mapFunction: MapFunction[T],
-                       itemHandler: (T) => Any,
+  def singleProcess[T, U](mapFunction: MapFunction[T, U],
+                       itemHandler: (U) => Any,
                        endHandler: () => Any,
                        buckets: Int = 8)(implicit ec: ExecutionContext): Consumer[T] = {
 
     // collector
-    val collecter = Collecter[T](buckets, itemHandler, endHandler)
+    val collecter = Collecter[U](buckets, itemHandler, endHandler)
 
     // create some calculators
     val gather = (recordResult: AsyncMapStreamRecord, bucketIndex: Int) => {
@@ -163,7 +163,7 @@ object AsyncMapStream {
       }
     }
     val cals = 0 to buckets - 1 map (
-        (bucketIndex) => MapCalculator[T](mapFunction, bucketIndex, gather)
+        (bucketIndex) => MapCalculator[T, U](mapFunction, bucketIndex, gather)
     )
 
     // consumer

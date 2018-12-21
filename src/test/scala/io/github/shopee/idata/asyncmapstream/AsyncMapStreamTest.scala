@@ -9,14 +9,13 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
   import AsyncMapStream._
 
   test("single process") {
-    val expectList  = 1 to 1000 map ((item) => item * item)
-    val expect      = expectList.mkString(",")
-    val mapFunction = (v: Int) => v * v
+    val expectList  = 1 to 1000 map ((item) => item * item + "")
+    val mapFunction = (v: Int) => (v * v) + ""
 
     1 to 1000 foreach { index =>
       val p          = Promise[Int]()
-      val resultList = ListBuffer[Int]()
-      val consumer = singleProcess[Int](mapFunction, (record) => {
+      val resultList = ListBuffer[String]()
+      val consumer = singleProcess[Int, String](mapFunction, (record) => {
         resultList.append(record)
       }, () => {
         p.trySuccess(0)
@@ -29,7 +28,7 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
       consumer.finish()
       Await.result(p.future, Duration.Inf)
       assert(resultList.length == expectList.length)
-      assert(resultList.mkString(",") == expect)
+      assert(resultList == expectList)
     }
   }
 
@@ -48,7 +47,7 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
     var t1         = System.currentTimeMillis()
     val p          = Promise[String]()
     val resultList = ListBuffer[String]()
-    val consumer = singleProcess[String](mapFunction, (record) => {
+    val consumer = singleProcess[String, String](mapFunction, (record) => {
       resultList.append(record)
     }, () => {
       p.trySuccess("")
