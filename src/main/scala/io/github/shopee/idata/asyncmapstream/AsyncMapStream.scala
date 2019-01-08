@@ -45,7 +45,7 @@ object AsyncMapStream {
         (item) => new CircleQueue[ConsumerSignal]()
     )
 
-    private var inputPointer: Int = 0
+    private var inputPointer: Int  = 0
     private var isErrored: Boolean = false
 
     /**
@@ -53,7 +53,7 @@ object AsyncMapStream {
       * Consume record one by one too.
       */
     def consume(record: T): Unit = {
-      if(isErrored) {
+      if (isErrored) {
         throw new Exception("continue consuming after error happened.")
       }
       // push a holder to queue
@@ -76,8 +76,8 @@ object AsyncMapStream {
     private var outputPointer = 0 // rotate outputPointer from 0 to buckets - 1
 
     /**
-     * collect result from queues
-     */
+      * collect result from queues
+      */
     private def collect() = synchronized {
       // output record
       var pointedQueue = bucketQueues(outputPointer)
@@ -87,20 +87,16 @@ object AsyncMapStream {
         val signal = pointedQueue.front
 
         signal.signal match {
-          case SIGNAL_HOLD => {
-            // break the loop
+          case SIGNAL_HOLD =>
             cont = false
-          }
 
-          case SIGNAL_RESOLVED => {
+          case SIGNAL_RESOLVED =>
             pointedQueue.dequeue()
             itemHandler(signal.extra.asInstanceOf[U])
-          }
 
-          case SIGNAL_END => {
+          case SIGNAL_END =>
             pointedQueue.dequeue()
             endHandler(null)
-          }
         }
 
         if (cont) {
