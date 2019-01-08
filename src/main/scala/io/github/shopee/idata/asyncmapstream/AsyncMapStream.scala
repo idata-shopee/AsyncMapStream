@@ -59,7 +59,6 @@ object AsyncMapStream {
       // push a holder to queue
       val signal = ConsumerSignal(SIGNAL_HOLD, record, resolveCallback)
       bucketQueues(inputPointer).enqueue(signal)
-
       mapper(signal)
 
       // to next bucket

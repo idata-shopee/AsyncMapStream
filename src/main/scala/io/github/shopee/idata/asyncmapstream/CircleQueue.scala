@@ -18,6 +18,7 @@ case class CircleQueue[T](initSize: Int = 100) {
   val DEQUEUE = 1
   val FRONT = 2
   val LENGTH = 3
+  val DEQUEUE_WHILE = 4
 
   private def mutateQueue(op: Int, data: Any): Any = synchronized {
     op match {
@@ -77,9 +78,9 @@ case class CircleQueue[T](initSize: Int = 100) {
     headIndex = 0
   }
 
-  def isEmpty(): Boolean = length() == 0
+  private def isEmpty(): Boolean = _length() == 0
 
-  def isFull(): Boolean = length() == size
+  private def isFull(): Boolean = _length() == size
 
   private def getRealPos(index: Long): Int = {
     (index % size).toInt
