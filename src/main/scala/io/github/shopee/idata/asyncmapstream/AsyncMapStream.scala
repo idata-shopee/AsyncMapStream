@@ -1,8 +1,6 @@
 package io.github.shopee.idata.asyncmapstream
 
 import java.util.concurrent.Executors
-import scala.collection.mutable.SynchronizedQueue
-import scala.collection.convert.decorateAsScala._
 import scala.concurrent.{ Future }
 import scala.concurrent.ExecutionContext
 
@@ -46,7 +44,7 @@ object AsyncMapStream {
       implicit ec: ExecutionContext
   ) {
     private val bucketQueues = 1 to buckets map (
-        (item) => new SynchronizedQueue[ConsumerSignal]()
+        (item) => new CircleQueue[ConsumerSignal]()
     )
 
     private var inputPointer: Int = 0
