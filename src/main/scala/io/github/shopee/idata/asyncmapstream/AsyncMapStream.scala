@@ -3,6 +3,7 @@ package io.github.shopee.idata.asyncmapstream
 import java.util.concurrent.Executors
 import scala.concurrent.{ Future }
 import scala.concurrent.ExecutionContext
+import java.util.concurrent.atomic.{ AtomicInteger, AtomicBoolean }
 
 /**
   * model:
@@ -45,7 +46,7 @@ object AsyncMapStream {
         (item) => new CircleQueue[ConsumerSignal]()
     )
 
-    private var inputPointer: Int  = 0
+    private var inputPointer = new AtomicInteger(0)
     private var isErrored: Boolean = false
 
     /**
@@ -58,11 +59,8 @@ object AsyncMapStream {
       }
       // push a holder to queue
       val signal = ConsumerSignal(SIGNAL_HOLD, record, resolveCallback)
-      bucketQueues(inputPointer).enqueue(signal)
+      bucketQueues(inputPointer.getAndIncrement() % buckets).enqueue(signal)
       mapper(signal)
-
-      // to next bucket
-      inputPointer = (inputPointer + 1) % buckets
     }
 
     def resolveCallback(err: Exception) =
@@ -74,46 +72,50 @@ object AsyncMapStream {
       }
 
     private var outputPointer = 0 // rotate outputPointer from 0 to buckets - 1
+    private val collectLock = new AtomicBoolean(false)
 
     /**
       * collect result from queues
       */
-    private def collect() = synchronized {
-      // output record
-      var pointedQueue = bucketQueues(outputPointer)
-      var cont         = true
+    private def collect() = {
+      // get lock and lock on
+      if(collectLock.compareAndSet(false, true)) {
+        // output record
+        var pointedQueue = bucketQueues(outputPointer)
+        var cont         = true
 
-      while (cont && pointedQueue.length > 0) {
-        val signal = pointedQueue.front
+        while (cont && pointedQueue.length > 0) {
+          val signal = pointedQueue.front
 
-        signal.signal match {
-          case SIGNAL_HOLD =>
-            cont = false
+          signal.signal match {
+            case SIGNAL_HOLD =>
+              cont = false
 
-          case SIGNAL_RESOLVED =>
-            pointedQueue.dequeue()
-            itemHandler(signal.extra.asInstanceOf[U])
+            case SIGNAL_RESOLVED =>
+              pointedQueue.dequeue()
+              itemHandler(signal.extra.asInstanceOf[U])
 
-          case SIGNAL_END =>
-            pointedQueue.dequeue()
-            endHandler(null)
+            case SIGNAL_END =>
+              pointedQueue.dequeue()
+              endHandler(null)
+          }
+
+          if (cont) {
+            // rotate outputPointer
+            outputPointer = (outputPointer + 1) % buckets
+            pointedQueue = bucketQueues(outputPointer)
+          }
         }
 
-        if (cont) {
-          // rotate outputPointer
-          outputPointer = (outputPointer + 1) % buckets
-          pointedQueue = bucketQueues(outputPointer)
-        }
-      }
+        // release lock
+        collectLock.set(false)
+      } 
     }
 
     // finished stream signal
     def finish() = {
-      bucketQueues(inputPointer).enqueue(ConsumerSignal(SIGNAL_END, null, resolveCallback))
+      bucketQueues(inputPointer.getAndIncrement() % buckets).enqueue(ConsumerSignal(SIGNAL_END, null, resolveCallback))
       collect()
-
-      // to next bucket
-      inputPointer = (inputPointer + 1) % buckets
     }
   }
 
@@ -122,12 +124,11 @@ object AsyncMapStream {
   ) {
     val queue = new CircleQueue[ConsumerSignal]()
 
-    var isProcessing = false
+    var isProcessing = new AtomicBoolean(false)
 
-    private def mapQueue() = synchronized {
-      if (!isProcessing) {
-        // lock
-        isProcessing = true
+    private def mapQueue() = {
+      // get lock and lock on
+      if(isProcessing.compareAndSet(false, true)) {
         Future {
           // println(s"queue length: ${queue.length}, thread id is: ${Thread.currentThread().getId()}")
           while (queue.length > 0) {
@@ -139,7 +140,7 @@ object AsyncMapStream {
             }
           }
           // release
-          isProcessing = false
+          isProcessing.set(false)
         }
       }
     }
@@ -167,13 +168,10 @@ object AsyncMapStream {
       val localSerialMappers = 1 to buckets map { _ =>
         LocalSerialMapper(mapFunction)
       }
-      var pointer = 0
+      var pointer = new AtomicInteger(0)
 
       val mapper: Mapper = (signal: ConsumerSignal) => {
-        localSerialMappers(pointer).mapper(signal)
-
-        pointer += 1
-        pointer = pointer % buckets
+        localSerialMappers(pointer.getAndIncrement() % buckets).mapper(signal)
       }
 
       val consumer = Consumer[T, U](mapper, itemHandler, endHandler, buckets)

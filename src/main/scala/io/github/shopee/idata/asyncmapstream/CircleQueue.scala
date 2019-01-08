@@ -1,5 +1,7 @@
 package io.github.shopee.idata.asyncmapstream
 
+import java.util.concurrent.atomic.{ AtomicBoolean }
+
 /**
   *
   * heade index
@@ -48,9 +50,11 @@ case class CircleQueue[T](initSize: Int = 100) {
       enlarge()
       _enqueue(item)
     } else {
+      // compare and set
       if (headIndex == -1) { // first element
         headIndex = 0
       }
+      // increment and get
       tailIndex += 1
 
       // place element
