@@ -56,19 +56,14 @@ object AsyncMapStream {
       * Consume record one by one too.
       */
     def consume(record: T): Unit = {
-      // run map function on current record
-      runMapOnRecord(record, inputPointer)
+      // push a holder to queue
+      val signal = ConsumerSignal(SIGNAL_HOLD, record, resolveCallback)
+      bucketQueues(inputPointer).enqueue(signal)
+
+      mapper(signal)
 
       // to next bucket
       inputPointer = (inputPointer + 1) % buckets
-    }
-
-    def runMapOnRecord(record: T, bucketIndex: Int) = {
-      // push a holder to queue
-      val signal = ConsumerSignal(SIGNAL_HOLD, record, resolveCallback)
-      bucketQueues(bucketIndex).enqueue(signal)
-
-      mapper(signal)
     }
 
     def resolveCallback(err: Exception) =
@@ -80,6 +75,9 @@ object AsyncMapStream {
 
     private var outputPointer = 0 // rotate outputPointer from 0 to buckets - 1
 
+    /**
+     * collect result from queues
+     */
     private def collect() = synchronized {
       // output record
       var pointedQueue = bucketQueues(outputPointer)
@@ -126,7 +124,7 @@ object AsyncMapStream {
   case class LocalSerialMapper[T, U](mapFunction: MapFunction[T, U])(
       implicit ec: ExecutionContext
   ) {
-    val queue = new SynchronizedQueue[ConsumerSignal]()
+    val queue = new CircleQueue[ConsumerSignal]()
 
     var isProcessing = false
 

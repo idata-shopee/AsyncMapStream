@@ -64,9 +64,9 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
     if (log) {
       println(s"normal solution: ${t4 - t3}")
     }
-    // assert(resultList.length == expectedList.length)
+    assert(resultList.length == expectedList.length)
 
-    // assert(resultList == expectedList)
+    assert(resultList == expectedList)
   }
 
   test("single process") {
