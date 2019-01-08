@@ -19,7 +19,7 @@ object AsyncMapStream {
 
   type MapFunction[T, U] = (T) => U
   type ItemHandler[U]    = (U) => Any
-  type EndHandler        = () => Any
+  type EndHandler        = (Exception) => Any
   type resolveCallback   = (Exception) => _
 
   case class ConsumerSignal(var signal: Int = SIGNAL_HOLD,
@@ -35,11 +35,9 @@ object AsyncMapStream {
 
   type Mapper = (ConsumerSignal) => _
 
-  // TODO failure tolerant
   case class Consumer[T, U](mapper: Mapper,
                             itemHandler: ItemHandler[U],
                             endHandler: EndHandler,
-                            // TODO error handler
                             buckets: Int = 8)(
       implicit ec: ExecutionContext
   ) {
@@ -48,12 +46,16 @@ object AsyncMapStream {
     )
 
     private var inputPointer: Int = 0
+    private var isErrored: Boolean = false
 
     /**
       * stream is ordered, output one by one.
       * Consume record one by one too.
       */
     def consume(record: T): Unit = {
+      if(isErrored) {
+        throw new Exception("continue consuming after error happened.")
+      }
       // push a holder to queue
       val signal = ConsumerSignal(SIGNAL_HOLD, record, resolveCallback)
       bucketQueues(inputPointer).enqueue(signal)
@@ -66,7 +68,8 @@ object AsyncMapStream {
 
     def resolveCallback(err: Exception) =
       if (err != null) {
-        // TODO
+        isErrored = true
+        endHandler(err)
       } else {
         collect()
       }
@@ -97,7 +100,7 @@ object AsyncMapStream {
 
           case SIGNAL_END => {
             pointedQueue.dequeue()
-            endHandler()
+            endHandler(null)
           }
         }
 

@@ -32,7 +32,7 @@ class AsyncMapStreamTest extends org.scalatest.FunSuite {
       (record) => {
         resultList.append(record)
       },
-      () => {
+      (err) => {
         val t2 = System.currentTimeMillis()
         if (log) {
           println(s"concurrent solution: ${t2 - t1}")
