@@ -4,6 +4,6 @@ sudo: false
 matrix:
   include:
     scala:
-        - 2.12.4
+        - 2.12.8
     script:
         - scripts/ci.sh
