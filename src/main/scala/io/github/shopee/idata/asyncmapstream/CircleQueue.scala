@@ -20,11 +20,13 @@ case class CircleQueue[T](initSize: Int = 100) {
   val DEQUEUE = 1
   val FRONT   = 2
   val LENGTH  = 3
+  val TRY_DEQUEUE = 4
 
   private def mutateQueue(op: Int, data: Any): Any = synchronized {
     op match {
       case ENQUEUE => _enqueue(data.asInstanceOf[T])
       case DEQUEUE => _dequeue()
+      case TRY_DEQUEUE => _tryDequeue()
       case FRONT   => _front()
       case LENGTH  => _length()
     }
@@ -34,15 +36,19 @@ case class CircleQueue[T](initSize: Int = 100) {
   def enqueue(item: T) = mutateQueue(ENQUEUE, item)
   def dequeue(): T     = mutateQueue(DEQUEUE, null).asInstanceOf[T]
   def front(): T       = mutateQueue(FRONT, null).asInstanceOf[T]
+  def tryDequeue(): Option[T] = mutateQueue(TRY_DEQUEUE, null).asInstanceOf[Option[T]]
 
   private def _length(): Long = if (headIndex == -1) 0 else tailIndex - headIndex + 1
 
   private def _front(): T = {
-    if (isEmpty()) {
-      throw new Exception("circle queue is empty!")
+    _tryFront() match {
+      case None => throw new Exception("circle queue is empty!")
+      case Some(v) => v
     }
+  }
 
-    array(getRealPos(headIndex)).asInstanceOf[T]
+  private def _tryFront(): Option[T] = {
+    if (isEmpty()) None else Some(array(getRealPos(headIndex)).asInstanceOf[T])
   }
 
   private def _enqueue(item: T): Unit =
@@ -61,10 +67,20 @@ case class CircleQueue[T](initSize: Int = 100) {
       array(getRealPos(tailIndex)) = item
     }
 
+  private def _tryDequeue(): Option[T] = {
+    _tryFront() match {
+      case None => None
+      case Some(top) =>
+        headIndex += 1
+        Some(top)
+    }
+  }
+
   private def _dequeue(): T = {
-    val top = _front()
-    headIndex += 1
-    top
+    _tryDequeue() match {
+      case None => throw new Exception("circle queue is empty!")
+      case Some(top) => top
+    } 
   }
 
   private def enlarge() = {

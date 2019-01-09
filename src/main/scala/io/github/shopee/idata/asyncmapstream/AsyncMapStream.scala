@@ -131,12 +131,16 @@ object AsyncMapStream {
       if(isProcessing.compareAndSet(false, true)) {
         Future {
           // println(s"queue length: ${queue.length}, thread id is: ${Thread.currentThread().getId()}")
-          while (queue.length > 0) {
-            val signal = queue.dequeue()
-            try {
-              signal.resolve(null, mapFunction(signal.extra.asInstanceOf[T]))
-            } catch {
-              case e: Exception => signal.resolve(e, null)
+          var con = true
+          while(con) {
+            queue.tryDequeue() match {
+              case None => con = false
+              case Some(signal) =>
+                try {
+                  signal.resolve(null, mapFunction(signal.extra.asInstanceOf[T]))
+                } catch {
+                  case e: Exception => signal.resolve(e, null)
+                }
             }
           }
           // release
