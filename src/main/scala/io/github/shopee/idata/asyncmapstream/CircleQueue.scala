@@ -1,6 +1,7 @@
 package io.github.shopee.idata.asyncmapstream
 
 import java.util.concurrent.atomic.{ AtomicBoolean }
+import scala.collection.mutable.{ ListBuffer }
 
 /**
   *
@@ -16,89 +17,112 @@ case class CircleQueue[T](initSize: Int = 100) {
   private var tailIndex: Long = -1
   private var array           = new Array[Any](size)
 
-  val ENQUEUE = 0
-  val DEQUEUE = 1
-  val FRONT   = 2
-  val LENGTH  = 3
-  val TRY_DEQUEUE = 4
+  private val muteLock = new AtomicBoolean(false)
 
-  private def mutateQueue(op: Int, data: Any): Any = synchronized {
-    op match {
-      case ENQUEUE => _enqueue(data.asInstanceOf[T])
-      case DEQUEUE => _dequeue()
-      case TRY_DEQUEUE => _tryDequeue()
-      case FRONT   => _front()
-      case LENGTH  => _length()
-    }
-  }
-
-  def length(): Long   = mutateQueue(LENGTH, null).asInstanceOf[Long]
-  def enqueue(item: T) = mutateQueue(ENQUEUE, item)
-  def dequeue(): T     = mutateQueue(DEQUEUE, null).asInstanceOf[T]
-  def front(): T       = mutateQueue(FRONT, null).asInstanceOf[T]
-  def tryDequeue(): Option[T] = mutateQueue(TRY_DEQUEUE, null).asInstanceOf[Option[T]]
-
-  private def _length(): Long = if (headIndex == -1) 0 else tailIndex - headIndex + 1
-
-  private def _front(): T = {
-    _tryFront() match {
-      case None => throw new Exception("circle queue is empty!")
-      case Some(v) => v
-    }
-  }
-
-  private def _tryFront(): Option[T] = {
-    if (isEmpty()) None else Some(array(getRealPos(headIndex)).asInstanceOf[T])
-  }
-
-  private def _enqueue(item: T): Unit =
-    if (isFull()) {
-      enlarge()
-      _enqueue(item)
-    } else {
-      // compare and set
-      if (headIndex == -1) { // first element
-        headIndex = 0
-      }
-      // increment and get
-      tailIndex += 1
-
-      // place element
-      array(getRealPos(tailIndex)) = item
-    }
-
-  private def _tryDequeue(): Option[T] = {
-    _tryFront() match {
-      case None => None
+  def dequeue(): T = {
+    while(!muteLock.compareAndSet(false, true)) {}
+    val result = tryFront() match {
+      case None      => throw new Exception("circle queue is empty!")
       case Some(top) =>
         headIndex += 1
-        Some(top)
+        top
     }
+
+    // release lock
+    muteLock.set(false)
+    result
   }
 
-  private def _dequeue(): T = {
-    _tryDequeue() match {
-      case None => throw new Exception("circle queue is empty!")
-      case Some(top) => top
+  def enqueue(item: T): Unit = {
+    tryEnlarge()
+
+    while(!muteLock.compareAndSet(false, true)) {}
+    // compare and set
+    if (headIndex == -1) { // first element
+      headIndex = 0
+    }
+
+    // increment and get
+    tailIndex += 1
+
+    // place element
+    array(getRealPos(tailIndex)) = item
+
+    // release lock
+    muteLock.set(false)
+  }
+
+  private def tryEnlarge() = {
+    while(!muteLock.compareAndSet(false, true)) {}
+
+    if(isFull()) {
+      val nextSize  = size * 2
+      val nextArray = new Array[Any](nextSize)
+      for (i <- headIndex to tailIndex) {
+        nextArray((i - headIndex).toInt) = array(getRealPos(i))
+      }
+
+      size = nextSize
+      array = nextArray
+      tailIndex = tailIndex - headIndex
+      headIndex = 0
     } 
+
+    // release lock
+    muteLock.set(false)
   }
 
-  private def enlarge() = {
-    val nextSize  = size * 2
-    val nextArray = new Array[Any](nextSize)
-    for (i <- headIndex to tailIndex) {
-      nextArray((i - headIndex).toInt) = array(getRealPos(i))
+  def dequeueWhen(handler: (T) => Boolean): Boolean = {
+    while(!muteLock.compareAndSet(false, true)) {}
+
+    val result = tryFront() match {
+      case None => false
+      case Some(item) => {
+        if(handler(item)) {
+          headIndex += 1
+          true
+        } else {
+          false
+        }
+      }
     }
 
-    size = nextSize
-    array = nextArray
-    tailIndex = tailIndex - headIndex
-    headIndex = 0
+    // release lock
+    muteLock.set(false)
+    result
   }
 
-  private def isEmpty(): Boolean = _length() == 0
+  def dequeueAll(): List[T] = {
+    while(!muteLock.compareAndSet(false, true)) {}
 
-  private def isFull(): Boolean = _length() == size
+    val result = if (isEmpty()) List()
+    else {
+      val realHeadIndex = getRealPos(headIndex)
+      val realTailIndex = getRealPos(tailIndex)
+      val ret =
+        if (realHeadIndex <= realTailIndex)
+          array.slice(realHeadIndex, realTailIndex + 1).toList.asInstanceOf[List[T]]
+        else
+          (array.slice(realHeadIndex, size).toList ++ array.slice(0, realTailIndex + 1))
+            .asInstanceOf[List[T]]
+      headIndex = 1
+      tailIndex = 0
+      ret
+    }
+
+    // release lock
+    muteLock.set(false)
+    result
+  }
+
+  private def length(): Long = if (headIndex == -1) 0 else tailIndex - headIndex + 1
+
+  private def tryFront(): Option[T] =
+    if (isEmpty()) None else Some(array(getRealPos(headIndex)).asInstanceOf[T]) 
+
+  private def isEmpty(): Boolean = length() == 0
+
+  private def isFull(): Boolean = length() == size
 
   private def getRealPos(index: Long): Int = (index % size).toInt
 }
